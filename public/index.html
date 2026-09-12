@@ -39,14 +39,24 @@
         <fieldset>
           <legend>允许的关系类型</legend>
           <div id="rules-relations"></div>
+          <p class="field-error" id="err-rule-relations"></p>
         </fieldset>
         <label><input type="checkbox" id="rule-proper"> 允许专有名词（人名/地名/品牌）</label>
         <label>解释最少字数 <input type="number" id="rule-minlen" min="0" max="50"></label>
+        <p class="field-error" id="err-rule-minlen"></p>
         <label>每回合秒数 <input type="number" id="rule-seconds" min="30" max="300"></label>
+        <p class="field-error" id="err-rule-seconds"></p>
         <label>每回合行动点 <input type="number" id="rule-ap" min="1" max="6"></label>
+        <p class="field-error" id="err-rule-ap"></p>
         <label>每人回合数 <input type="number" id="rule-rounds" min="1" max="10"></label>
+        <p class="field-error" id="err-rule-rounds"></p>
         <label>每人质疑次数 <input type="number" id="rule-tokens" min="0" max="9"></label>
-        <button id="btn-save-rules" class="primary">保存规则</button>
+        <p class="field-error" id="err-rule-tokens"></p>
+        <p class="field-error" id="err-rules-general"></p>
+        <div class="row">
+          <button id="btn-save-rules" class="primary">保存规则</button>
+          <button id="btn-cancel-rules">取消</button>
+        </div>
       </div>
     </div>
     <button id="btn-start" class="primary big hidden">开始游戏</button>
@@ -158,6 +168,7 @@
 
 <div id="toast-wrap"></div>
 <script src="tips.js"></script>
+<script src="rules.js"></script>
 <script src="client.js"></script>
 </body>
 </html>

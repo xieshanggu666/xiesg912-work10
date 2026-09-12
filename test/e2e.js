@@ -45,6 +45,23 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
   await B.waitFor(c => c.state && c.state.players.length === 2);
   check('加入房间', B.state.players.length === 2);
 
+  // 规则编辑：空关系列表被服务端拒绝（带上下文，供客户端就地提示）
+  A.send({ type: 'setRules', ruleSet: { allowedRelations: [] } });
+  await A.waitFor(c => c.msgs.some(m => m.type === 'error' && m.context === 'setRules'));
+  check('非法规则被拒绝且带上下文', A.state.ruleSet.allowedRelations.length > 0);
+
+  // 合法保存：房主收到确认，非房主及时看到更新（不改变行动点等，避免影响后续流程）
+  A.send({ type: 'setRules', ruleSet: { turnSeconds: 120, challengeTokens: 2 } });
+  await A.waitFor(c => c.msgs.some(m => m.type === 'rulesSaved'));
+  check('保存成功收到确认', true);
+  await B.waitFor(c => c.state.ruleSet.turnSeconds === 120);
+  check('非房主及时看到规则更新', B.state.ruleSet.challengeTokens === 2);
+
+  // 非房主无权修改规则
+  B.send({ type: 'setRules', ruleSet: { turnSeconds: 45 } });
+  await B.waitFor(c => c.msgs.some(m => m.type === 'error' && m.context === 'setRules'));
+  check('非房主修改被拒绝', B.state.ruleSet.turnSeconds === 120);
+
   A.send({ type: 'startGame' });
   await A.waitFor(c => c.state.phase === 'playing');
   check('开局', A.state.nodes.length === 3);

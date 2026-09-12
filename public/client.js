@@ -46,11 +46,16 @@
         render();
         break;
       case 'error':
-        toast(msg.message);
+        // 规则保存失败：编辑器保持打开，错误就地展示
+        if (msg.context === 'setRules') onRulesSaveError(msg.message);
+        else toast(msg.message);
         if (msg.message.includes('会话已失效') || msg.message.includes('房间已不存在')) {
           store.token = null;
           showScreen('home');
         }
+        break;
+      case 'rulesSaved':
+        onRulesSaved();
         break;
       case 'replay':
         replayFrames = msg.frames; replayIdx = 0;
@@ -64,6 +69,11 @@
   function onStateChange(prev, cur) {
     if (!prev || prev.phase !== cur.phase) {
       if (cur.phase === 'playing') tip('goal', '【目标】用行动点把新词接到场上，连成你的领地。词链越长得分越高；未加固的连接可能被对手质疑拆除。');
+    }
+    // 大厅里规则被修改：高亮规则卡片，非房主玩家额外弹提示，确保及时看到
+    if (prev && cur.phase === 'lobby' && !WTRules.sameRuleSet(prev.ruleSet, cur.ruleSet)) {
+      flashRulesCard();
+      if (cur.you !== cur.hostId) toast('房主更新了本局规则');
     }
     if (cur.phase === 'playing' && cur.turn) {
       if (!prev || !prev.turn || prev.turn.turnNumber !== cur.turn.turnNumber) {
@@ -429,31 +439,95 @@
     send({ type: 'joinRoom', name, roomCode: code });
   };
 
-  $('btn-edit-rules').onclick = () => {
+  // ---------- 规则编辑器 ----------
+  // 打开时完整回填当前规则；保存前就地校验；等服务器确认（rulesSaved）后再关闭，
+  // 失败时编辑器保持打开、错误就地显示，已填内容不丢失。
+
+  let rulesSaveTimer = null;
+
+  function flashRulesCard() {
+    const card = $('rules-card');
+    card.classList.remove('flash');
+    void card.offsetWidth; // 重新触发动画
+    card.classList.add('flash');
+  }
+
+  function clearRuleErrors() {
+    document.querySelectorAll('#rules-editor .field-error').forEach(el => { el.textContent = ''; });
+    document.querySelectorAll('#rules-editor input').forEach(el => el.classList.remove('invalid'));
+  }
+
+  function showRuleError(errId, inputId, msg) {
+    $(errId).textContent = msg;
+    if (inputId) $(inputId).classList.add('invalid');
+  }
+
+  // 用当前生效的规则完整回填编辑器，并清掉上次遗留的错误提示
+  function fillRulesEditor() {
     const r = state.ruleSet;
     $('rules-relations').innerHTML = state.relationTypes.map(t =>
       `<label><input type="checkbox" data-rel="${t.id}" ${r.allowedRelations.includes(t.id) ? 'checked' : ''}>
        ${t.name}（${t.example}）</label>`).join('');
     $('rule-proper').checked = r.allowProperNouns;
-    $('rule-minlen').value = r.minReasonLen;
-    $('rule-seconds').value = r.turnSeconds;
-    $('rule-ap').value = r.apPerTurn;
-    $('rule-rounds').value = r.rounds;
-    $('rule-tokens').value = r.challengeTokens;
-    $('rules-editor').classList.toggle('hidden');
-  };
-  $('btn-save-rules').onclick = () => {
-    const allowed = [...document.querySelectorAll('[data-rel]:checked')].map(x => x.dataset.rel);
-    send({ type: 'setRules', ruleSet: {
-      allowedRelations: allowed,
-      allowProperNouns: $('rule-proper').checked,
-      minReasonLen: +$('rule-minlen').value,
-      turnSeconds: +$('rule-seconds').value,
-      apPerTurn: +$('rule-ap').value,
-      rounds: +$('rule-rounds').value,
-      challengeTokens: +$('rule-tokens').value,
-    }});
+    for (const f of WTRules.NUMBER_FIELDS) $(f.id).value = r[f.key];
+    clearRuleErrors();
+  }
+
+  // 收集输入并校验；通过则返回可提交的 ruleSet，否则就地标出错误并返回 null
+  function validateRulesEditor() {
+    clearRuleErrors();
+    const input = {
+      allowedRelations: [...document.querySelectorAll('[data-rel]:checked')].map(x => x.dataset.rel),
+    };
+    for (const f of WTRules.NUMBER_FIELDS) input[f.key] = $(f.id).value;
+    const { errors, ruleSet } = WTRules.validateRuleSet(input);
+    for (const [key, msg] of Object.entries(errors)) {
+      if (key === 'allowedRelations') showRuleError('err-rule-relations', null, msg);
+      else {
+        const f = WTRules.NUMBER_FIELDS.find(x => x.key === key);
+        showRuleError(`err-${f.id}`, f.id, msg);
+      }
+    }
+    if (Object.keys(errors).length > 0) return null;
+    ruleSet.allowProperNouns = $('rule-proper').checked;
+    return ruleSet;
+  }
+
+  function setRulesSavePending(pending) {
+    $('btn-save-rules').disabled = pending;
+    clearTimeout(rulesSaveTimer);
+    // 兜底：若确认消息丢失（如断线），3 秒后恢复可点，避免按钮卡死
+    if (pending) rulesSaveTimer = setTimeout(() => setRulesSavePending(false), 3000);
+  }
+
+  function onRulesSaved() {
+    setRulesSavePending(false);
     $('rules-editor').classList.add('hidden');
+    toast('规则已保存');
+  }
+
+  function onRulesSaveError(message) {
+    setRulesSavePending(false);
+    if ($('rules-editor').classList.contains('hidden')) $('rules-editor').classList.remove('hidden');
+    showRuleError('err-rules-general', null, message);
+  }
+
+  $('btn-edit-rules').onclick = () => {
+    const editor = $('rules-editor');
+    if (editor.classList.contains('hidden')) {
+      fillRulesEditor();
+      editor.classList.remove('hidden');
+    } else {
+      editor.classList.add('hidden');
+    }
+  };
+  $('btn-cancel-rules').onclick = () => $('rules-editor').classList.add('hidden');
+  $('btn-save-rules').onclick = () => {
+    if ($('btn-save-rules').disabled) return;
+    const ruleSet = validateRulesEditor();
+    if (!ruleSet) return; // 校验未通过：错误已就地标出，不发送
+    setRulesSavePending(true);
+    send({ type: 'setRules', ruleSet });
   };
   $('btn-start').onclick = () => send({ type: 'startGame' });
   $('btn-home').onclick = () => { store.token = null; location.reload(); };

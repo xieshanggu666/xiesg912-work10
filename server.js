@@ -176,7 +176,9 @@ const handlers = {
     const room = ctxRoom(ctx);
     if (!room) return;
     const err = game.setRuleSet(room, ctx.playerId, msg.ruleSet || {});
-    if (err) return sendErr(ws, err);
+    if (err) return sendErr(ws, err, 'setRules');
+    // 明确告知保存方成功，客户端据此关闭编辑器并给出反馈
+    if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'rulesSaved' }));
     broadcast(room);
   },
 
@@ -246,8 +248,8 @@ function ctxRoom(ctx) {
   return room;
 }
 
-function sendErr(ws, message) {
-  if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'error', message }));
+function sendErr(ws, message, context) {
+  if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'error', message, context }));
 }
 
 // ---------- HTTP + WS ----------
