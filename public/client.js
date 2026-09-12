@@ -29,7 +29,11 @@
       if (store.token) send({ type: 'reconnect', token: store.token });
     };
     ws.onmessage = (e) => handle(JSON.parse(e.data));
-    ws.onclose = () => setTimeout(connect, 1500); // 自动重连
+    ws.onclose = () => {
+      // 连接断开：在途的保存请求不会再收到答复，解除提交锁定（重连后会拉取最新状态）
+      setRulesSavePending(false);
+      setTimeout(connect, 1500); // 自动重连
+    };
   }
 
   function send(msg) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(msg)); }
@@ -443,8 +447,6 @@
   // 打开时完整回填当前规则；保存前就地校验；等服务器确认（rulesSaved）后再关闭，
   // 失败时编辑器保持打开、错误就地显示，已填内容不丢失。
 
-  let rulesSaveTimer = null;
-
   function flashRulesCard() {
     const card = $('rules-card');
     card.classList.remove('flash');
@@ -493,11 +495,11 @@
     return ruleSet;
   }
 
+  // 提交锁定只能由两种确定结果解除：服务器答复（rulesSaved / 带 setRules 上下文的 error），
+  // 或连接断开（onclose，此次请求不会再有答复）。不能用定时器自动解除——
+  // 网络延迟超过定时时长而服务器尚未确认时，锁会被误解除，导致重复提交。
   function setRulesSavePending(pending) {
     $('btn-save-rules').disabled = pending;
-    clearTimeout(rulesSaveTimer);
-    // 兜底：若确认消息丢失（如断线），3 秒后恢复可点，避免按钮卡死
-    if (pending) rulesSaveTimer = setTimeout(() => setRulesSavePending(false), 3000);
   }
 
   function onRulesSaved() {

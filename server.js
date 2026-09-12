@@ -174,7 +174,8 @@ const handlers = {
 
   setRules(ws, ctx, msg) {
     const room = ctxRoom(ctx);
-    if (!room) return;
+    // 客户端会等待明确答复后才解除提交锁定，任何情况都要给出回应
+    if (!room) return sendErr(ws, '房间已不存在', 'setRules');
     const err = game.setRuleSet(room, ctx.playerId, msg.ruleSet || {});
     if (err) return sendErr(ws, err, 'setRules');
     // 明确告知保存方成功，客户端据此关闭编辑器并给出反馈
